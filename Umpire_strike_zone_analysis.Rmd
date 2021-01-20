@@ -1,0 +1,318 @@
+---
+title: "Strike Zone Analysis"
+author: "Umpire: CHIA-WEI WU"
+date: "Date: 2020/10/11 (G236)"
+output:
+  html_document: default
+  pdf_document:
+    fig_width: 10
+    fig_height: 6
+    fig_crop: false
+classoption: landscape
+geometry: margin=1.2in
+---
+
+```{r library,include=F}
+library(latexpdf)
+library(mgcv)
+library(ggplot2)
+library(gridExtra)
+```
+
+```{r training data,include=F}
+# Read TrackMan data from Python
+data <- read.csv("data/tm_data_2020.csv", header=T, sep=",")
+# Select specific data (umpire)
+new_data <- subset(data, data$Umpire == '吳家維' & (data$PitchCall == 'StrikeCalled' | data$PitchCall == 'BallCalled'))
+new_data$Call <- ifelse(new_data$PitchCall == 'StrikeCalled', 1, 0)
+# Select specific data (umpire/right)
+new_data_right <- subset(new_data, new_data$BatterSide == 'Right')
+# Select specific data (umpire/left)
+new_data_left <- subset(new_data, new_data$BatterSide == 'Left')
+```
+
+```{r gam,include=F}
+# Fit a GAM to total data
+fit <- gam(Call ~ s(PlateLocHeight, PlateLocSide),family=binomial,data=new_data)
+predict_data <- expand.grid(PlateLocSide = seq(-2.5, 2.5, length.out=500),PlateLocHeight = seq(0, 6, length.out=500))
+lp <- predict(fit,predict_data)
+probability = exp(lp) / (1 + exp(lp))
+predict_data$Probability <- probability
+# Fit a GAM to data of right hitters
+fit_right <- gam(Call ~ s(PlateLocHeight, PlateLocSide),family=binomial,data=new_data_right)
+predict_data_right <- expand.grid(PlateLocSide = seq(-2.5, 2.5, length.out=500),PlateLocHeight = seq(0, 6, length.out=500))
+lp_right <- predict(fit_right,predict_data_right)
+probability_right = exp(lp_right) / (1 + exp(lp_right))
+predict_data_right$Probability <- probability_right
+# Fit a GAM to data of left hitters
+fit_left <- gam(Call ~ s(PlateLocHeight, PlateLocSide),family=binomial,data=new_data_left)
+predict_data_left <- expand.grid(PlateLocSide = seq(-2.5, 2.5, length.out=500),PlateLocHeight = seq(0, 6, length.out=500))
+lp_left <- predict(fit_left,predict_data_left)
+probability_left = exp(lp_left) / (1 + exp(lp_left))
+predict_data_left$Probability <- probability_left
+```
+
+## Historical Strike Zone
+```{r plot right,echo=F,warning=F}
+getzone <- function(){
+  topKzone <- 3.5
+  botKzone <- 1.5
+  inKzone <- -0.835
+  outKzone <- 0.835
+  data.frame(
+    x=c(inKzone, inKzone, outKzone, outKzone, inKzone),
+    y=c(botKzone, topKzone, topKzone, botKzone, botKzone))
+}
+
+# Right
+right <- ggplot(getzone(), aes(x, y)) +
+  geom_tile(data=predict_data_right,
+            aes(x=PlateLocSide, y=PlateLocHeight, fill=Probability)) +
+  scale_fill_distiller(palette="Spectral") +
+  geom_path(lwd=0.8, col="black") +
+  xlim(-2.5,2.5) + 
+  ylim(0,6) +
+  ggtitle("Right") +
+  coord_fixed() +
+  theme(legend.position="none")
+```
+
+```{r left left,echo=F,warning=F}
+# Left
+left <- ggplot(getzone(), aes(x, y)) +
+  geom_tile(data=predict_data_left,
+            aes(x=PlateLocSide, y=PlateLocHeight, fill=Probability)) +
+  scale_fill_distiller(palette="Spectral") +
+  geom_path(lwd=0.8, col="black") +
+  xlim(-2.5,2.5) + 
+  ylim(0,6) +
+  ggtitle("Left") +
+  coord_fixed() +
+  theme(legend.position="none")
+```
+
+```{r plot total,echo=F,warning=F}
+get_legend<-function(myggplot){
+  tmp <- ggplot_gtable(ggplot_build(myggplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)
+}
+
+# Total
+total <- ggplot(getzone(), aes(x, y)) +
+  geom_tile(data=predict_data,
+            aes(x=PlateLocSide, y=PlateLocHeight, fill=Probability)) +
+  scale_fill_distiller(palette="Spectral") +
+  geom_path(lwd=0.8, col="black") +
+  xlim(-2.5,2.5) + 
+  ylim(0,6) +
+  ggtitle("Total") +
+  coord_fixed()
+
+legend <- get_legend(total)
+total <- total + theme(legend.position="none")
+grid.arrange(right, left, total, legend, ncol=4)
+```
+
+\pagebreak
+
+## Historical Strike Zone & Historical Ball-Strike Calls
+```{r plot right (point),echo=F,warning=F}
+# Right
+right_today <- ggplot(getzone(), aes(x, y)) +
+  geom_tile(data=predict_data_right,
+            aes(x=PlateLocSide, y=PlateLocHeight, fill=Probability)) +
+  scale_fill_distiller(palette="Spectral") +
+  geom_path(lwd=0.8, col="black") +
+  geom_point(data=new_data_right,mapping=aes(x=PlateLocSide, y=PlateLocHeight, colour=factor(PitchCall)), size = 0.4) +
+  scale_colour_manual(name="PitchCall", values = c("gray", "blue")) +
+  xlim(-2.5,2.5) + 
+  ylim(0,6) +
+  ggtitle("Right") +
+  coord_fixed() +
+  theme(legend.position="none")
+```
+
+```{r plot left (point),echo=F,warning=F}
+# Left
+left_today <- ggplot(getzone(), aes(x, y)) +
+  geom_tile(data=predict_data_left,
+            aes(x=PlateLocSide, y=PlateLocHeight, fill=Probability)) +
+  scale_fill_distiller(palette="Spectral") +
+  geom_path(lwd=0.8, col="black") +
+  geom_point(data=new_data_left,mapping=aes(x=PlateLocSide, y=PlateLocHeight, colour=factor(PitchCall)), size = 0.4) +
+  scale_colour_manual(name="PitchCall", values = c("gray", "blue")) +
+  xlim(-2.5,2.5) + 
+  ylim(0,6) +
+  ggtitle("Left") +
+  coord_fixed() +
+  theme(legend.position="none")
+```
+
+```{r plot total (point),echo=F,warning=F}
+# Total
+total_today <- ggplot(getzone(), aes(x, y)) +
+  geom_tile(data=predict_data,
+            aes(x=PlateLocSide, y=PlateLocHeight, fill=Probability)) +
+  scale_fill_distiller(palette="Spectral") +
+  geom_path(lwd=0.8, col="black") +
+  geom_point(data=new_data,mapping=aes(x=PlateLocSide, y=PlateLocHeight, colour=factor(PitchCall)), size = 0.4) +
+  scale_colour_manual(name="PitchCall", values = c("gray", "blue")) +
+  xlim(-2.5,2.5) + 
+  ylim(0,6) +
+  ggtitle("Total") +
+  coord_fixed()
+
+legend <- get_legend(total_today)
+total_today <- total_today + theme(legend.position="none")
+grid.arrange(right_today, left_today, total_today, legend, ncol=4)
+```
+
+\pagebreak
+
+## Historical Strike Zone & Today's Ball-Strike Calls
+```{r training data (point),include=F}
+# Read a specific game's TrackMan data
+check_data <- read.csv("data/20201011-Brothers-1.csv", header=T, sep=",")
+title <- colnames(check_data)
+colnames(check_data)[1:74] <- colnames(check_data)[2:75]
+check_data[75] <- NULL
+# Select unswung data
+check_data_total <- subset(check_data, check_data$PitchCall == 'StrikeCalled' | check_data$PitchCall == 'BallCalled')
+check_data_total$Call <- ifelse(check_data_total$PitchCall == 'StrikeCalled', 1, 0)
+# Select specific data (right)
+check_data_total_right <- subset(check_data_total, check_data_total$BatterSide == 'Right')
+# Select specific data (left)
+check_data_total_left <- subset(check_data_total, check_data_total$BatterSide == 'Left')
+```
+
+```{r plot right and today right,echo=F,warning=F}
+# Right
+right_today <- ggplot(getzone(), aes(x, y)) +
+  geom_tile(data=predict_data_right,
+            aes(x=PlateLocSide, y=PlateLocHeight, fill=Probability)) +
+  scale_fill_distiller(palette="Spectral") +
+  geom_path(lwd=0.8, col="black") +
+  geom_point(data=check_data_total_right,mapping=aes(x=PlateLocSide, y=PlateLocHeight, colour=factor(PitchCall)), size = 0.5) +
+  scale_colour_manual(name="PitchCall", values = c("gray", "blue")) +
+  xlim(-2.5,2.5) + 
+  ylim(0,6) +
+  ggtitle("Right") +
+  coord_fixed() +
+  theme(legend.position="none")
+```
+
+```{r plot left and today left,echo=F,warning=F}
+# Left
+left_today <- ggplot(getzone(), aes(x, y)) +
+  geom_tile(data=predict_data_left,
+            aes(x=PlateLocSide, y=PlateLocHeight, fill=Probability)) +
+  scale_fill_distiller(palette="Spectral") +
+  geom_path(lwd=0.8, col="black") +
+  geom_point(data=check_data_total_left,mapping=aes(x=PlateLocSide, y=PlateLocHeight, colour=factor(PitchCall)), size = 0.5) +
+  scale_colour_manual(name="PitchCall", values = c("gray", "blue")) +
+  xlim(-2.5,2.5) + 
+  ylim(0,6) +
+  ggtitle("Left") +
+  coord_fixed() +
+  theme(legend.position="none")
+```
+
+```{r plot total and today total,echo=F,warning=F}
+# Total
+total_today <- ggplot(getzone(), aes(x, y)) +
+  geom_tile(data=predict_data,
+            aes(x=PlateLocSide, y=PlateLocHeight, fill=Probability)) +
+  scale_fill_distiller(palette="Spectral") +
+  geom_path(lwd=0.8, col="black") +
+  geom_point(data=check_data_total,mapping=aes(x=PlateLocSide, y=PlateLocHeight, colour=factor(PitchCall)), size = 0.5) +
+  scale_colour_manual(name="PitchCall", values = c("gray", "blue")) +
+  xlim(-2.5,2.5) + 
+  ylim(0,6) +
+  ggtitle("Total") +
+  coord_fixed()
+
+legend <- get_legend(total_today)
+total_today <- total_today + theme(legend.position="none")
+grid.arrange(right_today, left_today, total_today, legend, ncol=4)
+```
+
+```{r predict testing data,include=F}
+# Total
+predicted.probability <- predict(fit, check_data_total, type = "response")
+predicted.call <- ifelse(predicted.probability> 0.5, 1, 0)
+accuracy_total <- mean(predicted.call == check_data_total$Call)
+test = (predicted.call == check_data_total$Call)
+bad_call_data = check_data_total[which(test == FALSE),]
+# Right
+predicted.probability <- predict(fit_right, check_data_total_right, type = "response")
+predicted.call <- ifelse(predicted.probability> 0.5, 1, 0)
+accuracy_right <- mean(predicted.call == check_data_total_right$Call)
+test = (predicted.call == check_data_total_right$Call)
+bad_call_data_right = check_data_total_right[which(test == FALSE),]
+# Left
+predicted.probability <- predict(fit_left, check_data_total_left, type = "response")
+predicted.call <- ifelse(predicted.probability> 0.5, 1, 0)
+accuracy_left <- mean(predicted.call == check_data_total_left$Call)
+test = (predicted.call == check_data_total_left$Call)
+bad_call_data_left = check_data_total_left[which(test == FALSE),]
+```
+
+\pagebreak
+
+## Historical Strike Zone & Today's Problematic Ball-Strike Calls
+```{r plot right and bad right,echo=F,warning=F}
+# Right
+right_bad <- ggplot(getzone(), aes(x, y)) +
+  geom_tile(data=predict_data_right,
+            aes(x=PlateLocSide, y=PlateLocHeight, fill=Probability)) +
+  scale_fill_distiller(palette="Spectral") +
+  geom_path(lwd=0.8, col="black") +
+  geom_point(data=bad_call_data_right,mapping=aes(x=PlateLocSide, y=PlateLocHeight, colour=factor(PitchCall)), size = 0.5) +
+  scale_colour_manual(name="PitchCall", values = c("gray", "blue")) +
+  xlim(-2.5,2.5) + 
+  ylim(0,6) +
+  ggtitle("Right") +
+  coord_fixed() +
+  theme(legend.position="none")
+```
+
+```{r plot left and bad left,echo=F,warning=F}
+# Left
+left_bad <- ggplot(getzone(), aes(x, y)) +
+  geom_tile(data=predict_data_left,
+            aes(x=PlateLocSide, y=PlateLocHeight, fill=Probability)) +
+  scale_fill_distiller(palette="Spectral") +
+  geom_path(lwd=0.8, col="black") +
+  geom_point(data=bad_call_data_left,mapping=aes(x=PlateLocSide, y=PlateLocHeight, colour=factor(PitchCall)), size = 0.5) +
+  scale_colour_manual(name="PitchCall", values = c("gray", "blue")) +
+  xlim(-2.5,2.5) + 
+  ylim(0,6) +
+  ggtitle("Left") +
+  coord_fixed() +
+  theme(legend.position="none")
+```
+
+```{r plot total and bad total,echo=F,warning=F}
+# Total
+total_bad <- ggplot(getzone(), aes(x, y)) +
+  geom_tile(data=predict_data,
+            aes(x=PlateLocSide, y=PlateLocHeight, fill=Probability)) +
+  scale_fill_distiller(palette="Spectral") +
+  geom_path(lwd=0.8, col="black") +
+  geom_point(data=bad_call_data,mapping=aes(x=PlateLocSide, y=PlateLocHeight, colour=factor(PitchCall)), size = 0.5) +
+  scale_colour_manual(name="PitchCall", values = c("gray", "blue")) +
+  xlim(-2.5,2.5) + 
+  ylim(0,6) +
+  ggtitle("Total") +
+  coord_fixed()
+
+legend <- get_legend(total_bad)
+total_bad <- total_bad + theme(legend.position="none")
+grid.arrange(right_bad, left_bad, total_bad, legend, ncol=4)
+```
+
+Accuracy (Right Batters): `r round(accuracy_right*100,2)`%  
+Accuracy (Left Batters): `r round(accuracy_left*100,2)`%  
+Accuracy (Total): `r round(accuracy_total*100,2)`% 
